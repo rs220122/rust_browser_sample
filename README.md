@@ -1,0 +1,2 @@
+# rust_browser_sample
+ブラウザ自作の勉強用ディレクトリ
