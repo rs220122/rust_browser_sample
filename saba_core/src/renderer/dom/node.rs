@@ -124,7 +124,7 @@ impl Node {
         }
     }
 
-    pub fn get_element_kind(&self) -> Option<ElementKind> {
+    pub fn element_kind(&self) -> Option<ElementKind> {
         match self.kind {
             NodeKind::Document | NodeKind::Text(_) => None,
             NodeKind::Element(ref e) => Some(e.kind()),
