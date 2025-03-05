@@ -24,7 +24,7 @@ impl HttpClient {
     ) -> Result<HttpResponse, Error> {
         let ips = match lookup_host(&host) {
             Ok(ips) => ips,
-            Err(e) => {
+            Err(_e) => {
                 return Err(Error::Network(format!(
                     "Failed to find IP addresses: {:#?}",
                     3
