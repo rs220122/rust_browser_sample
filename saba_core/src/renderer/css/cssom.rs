@@ -1,20 +1,6 @@
 use alloc::{string::String, vec::Vec};
 
-use crate::renderer::css::token::CssTokenizer;
-use core::iter::Peekable;
-
 use super::token::CssToken;
-
-#[derive(Debug, Clone)]
-pub struct CssParser {
-    t: Peekable<CssTokenizer>,
-}
-
-impl CssParser {
-    pub fn new(t: CssTokenizer) -> Self {
-        Self { t: t.peekable() }
-    }
-}
 
 // セレクター
 #[derive(Debug, Clone, PartialEq, Eq)]
