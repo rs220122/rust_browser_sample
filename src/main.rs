@@ -7,12 +7,24 @@ use crate::alloc::string::ToString;
 use noli::prelude::*;
 use saba_core::browser::Browser;
 use saba_core::http::HttpResponse;
+use saba_core::renderer::css::parser::CssParser;
+use saba_core::renderer::css::token::CssTokenizer;
+use saba_core::renderer::dom::api::get_style_content;
+use saba_core::renderer::dom::window::Window;
+use saba_core::renderer::html::parser::HtmlParser;
+use saba_core::renderer::html::token::HtmlTokenizer;
 
 static TEST_HTTP_RESPONSE: &str = r#"HTTP/1.1 200 OK
 Data: xx xx xx
 
 <html>
-<head></head>
+<head>
+<style>
+  .hidden {
+    display: none;
+  }
+</style>
+</head>
 <body>
     <h1 id="title">H1 title</h1>
     <h2 class="class">H2 title</h2>
