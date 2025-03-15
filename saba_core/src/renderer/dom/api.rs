@@ -1,5 +1,6 @@
 use core::cell::RefCell;
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::{rc::Rc, string::ToString};
 
@@ -38,4 +39,24 @@ pub fn get_target_element_node(
         }
         None => None,
     }
+}
+
+/// DOMからstyleタグの中身のテキストを取得する
+pub fn get_style_content(root: Rc<RefCell<Node>>) -> String {
+    let style_node =
+        match get_target_element_node(Some(root), ElementKind::Style) {
+            Some(node) => node,
+            None => return String::new(),
+        };
+
+    let text_node = match style_node.borrow().first_child() {
+        Some(node) => node,
+        None => return String::new(),
+    };
+
+    let content = match text_node.borrow().kind() {
+        NodeKind::Text(ref s) => s.clone(),
+        _ => String::new(),
+    };
+    content
 }
