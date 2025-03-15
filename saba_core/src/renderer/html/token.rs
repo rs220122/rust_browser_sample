@@ -584,6 +584,70 @@ mod tests {
     }
 
     #[test]
+    fn test_style_tag_in_head() {
+        let html = r#"<html>
+<head>
+<style>css mode;</style>
+</head>
+<body></body>
+</html>"#
+            .to_string();
+        let mut tokenizer = HtmlTokenizer::new(html);
+        let expected = [
+            HtmlToken::StartTag {
+                tag: "html".to_string(),
+                self_closing: false,
+                attributes: Vec::new(),
+            },
+            HtmlToken::Char('\n'),
+            HtmlToken::StartTag {
+                tag: "head".to_string(),
+                self_closing: false,
+                attributes: Vec::new(),
+            },
+            HtmlToken::Char('\n'),
+            HtmlToken::StartTag {
+                tag: "style".to_string(),
+                self_closing: false,
+                attributes: Vec::new(),
+            },
+            HtmlToken::Char('c'),
+            HtmlToken::Char('s'),
+            HtmlToken::Char('s'),
+            HtmlToken::Char(' '),
+            HtmlToken::Char('m'),
+            HtmlToken::Char('o'),
+            HtmlToken::Char('d'),
+            HtmlToken::Char('e'),
+            HtmlToken::Char(';'),
+            HtmlToken::EndTag {
+                tag: "style".to_string(),
+            },
+            HtmlToken::Char('\n'),
+            HtmlToken::EndTag {
+                tag: "head".to_string(),
+            },
+            HtmlToken::Char('\n'),
+            HtmlToken::StartTag {
+                tag: "body".to_string(),
+                self_closing: false,
+                attributes: Vec::new(),
+            },
+            HtmlToken::EndTag {
+                tag: "body".to_string(),
+            },
+            HtmlToken::Char('\n'),
+            HtmlToken::EndTag {
+                tag: "html".to_string(),
+            },
+        ];
+
+        for e in expected {
+            assert_eq!(Some(e), tokenizer.next());
+        }
+    }
+
+    #[test]
     fn test_script_tag() {
         let html = "<script>js code;</script>".to_string();
         let mut tokenizer = HtmlTokenizer::new(html);
