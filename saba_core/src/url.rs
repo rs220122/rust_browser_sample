@@ -36,6 +36,21 @@ impl Url {
         Ok(self.clone())
     }
 
+    pub fn host(&self) -> String {
+        self.host.clone()
+    }
+
+    pub fn port(&self) -> String {
+        self.port.clone()
+    }
+
+    pub fn path(&self) -> String {
+        self.path.clone()
+    }
+    pub fn serachpart(&self) -> String {
+        self.searchpart.clone()
+    }
+
     fn is_http(&self) -> bool {
         if self.url.contains("http://") {
             return true;

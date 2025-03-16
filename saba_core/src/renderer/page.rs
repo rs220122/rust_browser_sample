@@ -18,6 +18,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use super::dom::element::ElementKind;
+use super::dom::node::NodeKind;
+
 // Browserのタブを管理する構造体
 #[derive(Debug, Clone)]
 pub struct Page {
@@ -37,6 +40,26 @@ impl Page {
             layout_view: None,
             display_items: Vec::new(),
         }
+    }
+
+    pub fn clicked(&self, position: (i64, i64)) -> Option<String> {
+        // レイアウトビューで、どのノードがクリックされたかを判断し、aたぐで、　href属性があれば、それを返す。
+        let view = match &self.layout_view {
+            Some(v) => v,
+            None => return None,
+        };
+
+        if let Some(n) = view.find_node_by_position(position) {
+            if let Some(parent) = n.borrow().parent().upgrade() {
+                if let NodeKind::Element(e) = parent.borrow().node_kind() {
+                    if e.kind() == ElementKind::A {
+                        return e.get_attribute("href");
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     pub fn set_browser(&mut self, browser: Weak<RefCell<Browser>>) {

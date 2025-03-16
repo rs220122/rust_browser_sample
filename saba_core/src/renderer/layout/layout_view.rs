@@ -115,6 +115,7 @@ impl LayoutView {
         tree
     }
 
+    // 描画位置の計算を行う。
     fn update_layout(&mut self) {
         Self::calculate_node_size(
             &self.root,
@@ -127,6 +128,53 @@ impl LayoutView {
             None,
             None,
         );
+    }
+
+    // クリックした位置からどのノードがクリックされたかを判断する。
+    pub fn find_node_by_position(
+        &self,
+        position: (i64, i64),
+    ) -> Option<Rc<RefCell<LayoutObject>>> {
+        Self::find_node_by_position_internal(&self.root(), position)
+    }
+
+    // ノードを再起的に走査して、どのノードがクリックされたかを探る。
+    fn find_node_by_position_internal(
+        node: &Option<Rc<RefCell<LayoutObject>>>,
+        position: (i64, i64),
+    ) -> Option<Rc<RefCell<LayoutObject>>> {
+        match node {
+            Some(n) => {
+                let first_child = n.borrow().first_child();
+                let result1 =
+                    Self::find_node_by_position_internal(&first_child, position);
+                if result1.is_some() {
+                    return result1;
+                }
+
+                let next_sibling = n.borrow().next_sibling();
+                let result2 = Self::find_node_by_position_internal(
+                    &next_sibling,
+                    position,
+                );
+                if result2.is_some() {
+                    return result2;
+                }
+
+                // ノードの内部にあるかを判断する。
+                if n.borrow().point().x() <= position.0
+                    && position.0
+                        <= (n.borrow().point().x() + n.borrow().size().width())
+                    && n.borrow().point().y() <= position.1
+                    && position.1
+                        <= (n.borrow().point().y() + n.borrow().size().height())
+                {
+                    return Some(n.clone());
+                }
+                None
+            }
+            None => None,
+        }
     }
 
     // レイアウトツリーの各ノードのサイズを再帰的に計算する
@@ -153,6 +201,7 @@ impl LayoutView {
         }
     }
 
+    // ノードのポジションを計算する
     fn calculate_node_position(
         node: &Option<Rc<RefCell<LayoutObject>>>,
         parent_point: LayoutPoint,

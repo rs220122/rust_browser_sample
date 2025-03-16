@@ -37,6 +37,15 @@ impl Element {
     pub fn attributes(&self) -> Vec<Attribute> {
         self.attributes.clone()
     }
+
+    pub fn get_attribute(&self, attr_name: &str) -> Option<String> {
+        for attr in self.attributes.iter() {
+            if attr.name() == attr_name {
+                return Some(attr.value());
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
