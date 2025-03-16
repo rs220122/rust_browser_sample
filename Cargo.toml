@@ -1,4 +1,4 @@
-workspace = { members = [ "net/wasabi","saba_core"] }
+workspace = { members = [ "net/wasabi","saba_core", "ui/wasabi"] }
 [package]
 name = "rusa"
 version = "0.1.0"
@@ -7,7 +7,7 @@ default-run = 'rusa'
 
 [features]
 default=['wasabi']
-wasabi=['dep:net_wasabi', 'dep:noli']
+wasabi=['dep:net_wasabi', 'dep:noli', 'dep:ui_wasabi']
 
 [[bin]]
 name='rusa'
@@ -19,3 +19,4 @@ required-features=['wasabi']
 noli = { git="https://github.com/hikalium/wasabi.git", branch="for_saba", optional = true}
 saba_core = {path='./saba_core'}
 net_wasabi = {path='./net/wasabi', optional = true}
+ui_wasabi = {path='./ui/wasabi', optional = true}

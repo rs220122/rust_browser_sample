@@ -3,6 +3,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+#[derive(Debug, Clone)]
 pub struct Browser {
     active_page_index: usize,
     pages: Vec<Rc<RefCell<Page>>>,
