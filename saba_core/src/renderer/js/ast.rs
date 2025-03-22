@@ -2,12 +2,22 @@ use core::iter::Peekable;
 
 use super::token::JsLexer;
 use super::token::Token;
+use alloc::string::String;
 use alloc::{rc::Rc, vec::Vec};
 
 // 字句解析からトークンを受け取って、構文解析して、ASTを作る際のノード
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
     ExpressionStatement(Option<Rc<Node>>),
+    VariableDeclaration {
+        declarations: Vec<Option<Rc<Node>>>,
+    },
+    VariableDeclarator {
+        id: Option<Rc<Node>>,
+        init: Option<Rc<Node>>,
+    },
+    Identifier(String),
+    StringLiteral(String),
     AdditiveExpression {
         operator: char,
         left: Option<Rc<Node>>,
@@ -66,10 +76,26 @@ impl JsParser {
     }
 
     // statementとexpression statementの実装
-    // Statement ::= ExpressionStatement
+    // Statement ::= ExpressionStatement | VariableStatement
+    // VariableStatement ::= "var" VariableDeclaration
     // ExpressionStatement ::= AssignmentExpression (";")?
     fn statement(&mut self) -> Option<Rc<Node>> {
-        let node = Node::new_expression_statement(self.assignment_expression());
+        let t = match self.t.peek() {
+            Some(t) => t,
+            None => return None,
+        };
+        let node = match t {
+            Token::Keyword(k) => {
+                if k == "var" {
+                    // "var"を消費
+                    assert!(self.t.next().is_some());
+                    self.variable_declaration()
+                } else {
+                    None
+                }
+            }
+            _ => Node::new_expression_statement(self.assignment_expression()),
+        };
 
         if let Some(Token::Punctuator(c)) = self.t.peek() {
             // ';'を消費する
@@ -80,9 +106,69 @@ impl JsParser {
         node
     }
 
-    // AssignmentExpression ::= AdditiveExpression
+    // VariableDeclaration ::= Identifier ( Initializer )? #
+    fn variable_declaration(&mut self) -> Option<Rc<Node>> {
+        let ident = self.identifier();
+
+        let declarator =
+            Node::new_variable_declarator(ident, self.initializer());
+
+        let mut declarations = Vec::new();
+        declarations.push(declarator);
+
+        Node::new_variable_declaration(declarations)
+    }
+
+    // Identifier ::= <identifier name>
+    // <identifier name> ::= (& | _ | a-z | A-Z) (&| a-z | A-Z)*
+    fn identifier(&mut self) -> Option<Rc<Node>> {
+        let t = match self.t.next() {
+            Some(t) => t,
+            None => return None,
+        };
+
+        match t {
+            Token::Identifier(name) => Node::new_identifier(name),
+            _ => None,
+        }
+    }
+
+    // Initializer ::= "=" AssignmentExpression
+    fn initializer(&mut self) -> Option<Rc<Node>> {
+        let t = match self.t.next() {
+            Some(t) => t,
+            None => return None,
+        };
+
+        if t == Token::Punctuator('=') {
+            self.assignment_expression()
+        } else {
+            None
+        }
+    }
+
+    // AssignmentExpression ::= AdditiveExpression ( "=" AdditiveExpression )*
     fn assignment_expression(&mut self) -> Option<Rc<Node>> {
-        self.additive_expression()
+        let expr = self.additive_expression();
+
+        let t = match self.t.peek() {
+            Some(token) => token,
+            None => return expr,
+        };
+
+        match t {
+            // ("=" AdditiveExpression )* の場合は、こちら
+            Token::Punctuator('=') => {
+                // '=' を消費する。
+                assert!(self.t.next().is_some());
+                Node::new_assignment_expression(
+                    '=',
+                    expr,
+                    self.assignment_expression(),
+                )
+            }
+            _ => expr,
+        }
     }
 
     // AdditiveExpression ::= LeftHandSizeExpression ( AdditiveOperator AssignmentExpression )*
@@ -121,8 +207,9 @@ impl JsParser {
         self.primary_expression()
     }
 
-    // PrimaryExpression ::= Literal
-    // Literal ::= <digit>+
+    // PrimaryExpression ::= Identifier | Literal
+    // Literal ::= <digit>+ | <string>
+    // <string> ::= " (a-z | A-Z)*"
     // <digit> ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
     fn primary_expression(&mut self) -> Option<Rc<Node>> {
         let t = match self.t.next() {
@@ -132,6 +219,8 @@ impl JsParser {
 
         match t {
             Token::Number(value) => Node::new_numeric_literal(value),
+            Token::StringLiteral(value) => Node::new_string_literal(value),
+            Token::Identifier(name) => Node::new_identifier(name),
             _ => None,
         }
     }
@@ -176,6 +265,27 @@ impl Node {
 
     pub fn new_numeric_literal(value: u64) -> Option<Rc<Self>> {
         Some(Rc::new(Node::NumericLiteral(value)))
+    }
+
+    pub fn new_variable_declarator(
+        id: Option<Rc<Self>>,
+        init: Option<Rc<Self>>,
+    ) -> Option<Rc<Self>> {
+        Some(Rc::new(Node::VariableDeclarator { id, init }))
+    }
+
+    pub fn new_variable_declaration(
+        declarations: Vec<Option<Rc<Self>>>,
+    ) -> Option<Rc<Self>> {
+        Some(Rc::new(Node::VariableDeclaration { declarations }))
+    }
+
+    pub fn new_identifier(name: String) -> Option<Rc<Self>> {
+        Some(Rc::new(Node::Identifier(name)))
+    }
+
+    pub fn new_string_literal(value: String) -> Option<Rc<Self>> {
+        Some(Rc::new(Node::StringLiteral(value)))
     }
 }
 
@@ -265,6 +375,61 @@ mod tests {
                     right: Some(Rc::new(Node::NumericLiteral(1234))),
                 },
             ))))]
+            .to_vec(),
+        );
+
+        assert_eq!(expected, parser.parse_ast());
+    }
+
+    #[test]
+    fn test_assign_variable() {
+        let input = "var foo=\"bar\";".to_string();
+        let mut parser = create_parser(input);
+        let mut expected = Program::new();
+        expected.set_body(
+            [Rc::new(Node::VariableDeclaration {
+                declarations: [Some(Rc::new(Node::VariableDeclarator {
+                    id: Some(Rc::new(Node::Identifier("foo".to_string()))),
+                    init: Some(Rc::new(Node::StringLiteral("bar".to_string()))),
+                }))]
+                .to_vec(),
+            })]
+            .to_vec(),
+        );
+        assert_eq!(expected, parser.parse_ast());
+    }
+    #[test]
+    fn test_add_variable_and_num() {
+        let input = r#"var foo=42; 
+var result = foo + 1;"#
+            .to_string();
+        let mut parser = create_parser(input);
+        let mut expected = Program::new();
+        expected.set_body(
+            [
+                Rc::new(Node::VariableDeclaration {
+                    declarations: [Some(Rc::new(Node::VariableDeclarator {
+                        id: Some(Rc::new(Node::Identifier("foo".to_string()))),
+                        init: Some(Rc::new(Node::NumericLiteral(42))),
+                    }))]
+                    .to_vec(),
+                }),
+                Rc::new(Node::VariableDeclaration {
+                    declarations: [Some(Rc::new(Node::VariableDeclarator {
+                        id: Some(Rc::new(Node::Identifier(
+                            "result".to_string(),
+                        ))),
+                        init: Some(Rc::new(Node::AdditiveExpression {
+                            operator: '+',
+                            left: Some(Rc::new(Node::Identifier(
+                                "foo".to_string(),
+                            ))),
+                            right: Some(Rc::new(Node::NumericLiteral(1))),
+                        })),
+                    }))]
+                    .to_vec(),
+                }),
+            ]
             .to_vec(),
         );
 

@@ -1,0 +1,24 @@
+Program ::= (SourceElements)? <EOF>
+SouceElements ::= (SourceElement)+ 
+SourceElement ::= Statement
+
+Statement ::= ExpressionStatement | VariableStatement
+VariableStatement ::= "var" VariableDeclaration (";")?  # var a;, var a=
+VariableDeclaration ::= Identifier ( Initializer )? # 
+Initializer ::= "=" AssignmentExpression
+
+ExpressionStatement ::= AssignmentExpression (";")?
+
+AssignmentExpression ::= AdditiveExpression ("=" AdditiveExpression)*
+AdditiveExpression ::= LeftHandSideExpression ( AdditiveOperator AssignmentExpression)*
+AdditiveOperator ::= <"+"> | <"-">
+LeftHandSideExpression ::= MemberExpression
+MemberExpression ::= PrimaryExpression
+
+PrimaryExpression ::= Identifier | Literal 
+Identifier ::= <identifier name>
+<identifier name> ::= (& | _ | a-z | A-Z) (&| a-z | A-Z)*
+Literal ::= <digit>+ | <string>
+<string> ::= " (a-z | A-Z)*"
+<digit> ::= 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7| 8 | 9
+
