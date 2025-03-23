@@ -113,8 +113,7 @@ impl JsParser {
         let declarator =
             Node::new_variable_declarator(ident, self.initializer());
 
-        let mut declarations = Vec::new();
-        declarations.push(declarator);
+        let mut declarations = [declarator].to_vec();
 
         Node::new_variable_declaration(declarations)
     }
@@ -158,6 +157,7 @@ impl JsParser {
 
         match t {
             // ("=" AdditiveExpression )* の場合は、こちら
+            // 変数の再代入用(example: result = 100)
             Token::Punctuator('=') => {
                 // '=' を消費する。
                 assert!(self.t.next().is_some());
@@ -398,6 +398,7 @@ mod tests {
         );
         assert_eq!(expected, parser.parse_ast());
     }
+
     #[test]
     fn test_add_variable_and_num() {
         let input = r#"var foo=42; 
@@ -429,6 +430,57 @@ var result = foo + 1;"#
                     }))]
                     .to_vec(),
                 }),
+            ]
+            .to_vec(),
+        );
+
+        assert_eq!(expected, parser.parse_ast());
+    }
+
+    #[test]
+    fn test_add_variable_and_reassign() {
+        // 変数定義(一つの変数)
+        // 変数定義(足し算を行ったあとの変数定義)
+        // 変数への再代入
+        let input = r#"var foo=42; 
+var result = foo + 1;
+result = 10"#
+            .to_string();
+        let mut parser = create_parser(input);
+        let mut expected = Program::new();
+        expected.set_body(
+            [
+                Rc::new(Node::VariableDeclaration {
+                    declarations: [Some(Rc::new(Node::VariableDeclarator {
+                        id: Some(Rc::new(Node::Identifier("foo".to_string()))),
+                        init: Some(Rc::new(Node::NumericLiteral(42))),
+                    }))]
+                    .to_vec(),
+                }),
+                Rc::new(Node::VariableDeclaration {
+                    declarations: [Some(Rc::new(Node::VariableDeclarator {
+                        id: Some(Rc::new(Node::Identifier(
+                            "result".to_string(),
+                        ))),
+                        init: Some(Rc::new(Node::AdditiveExpression {
+                            operator: '+',
+                            left: Some(Rc::new(Node::Identifier(
+                                "foo".to_string(),
+                            ))),
+                            right: Some(Rc::new(Node::NumericLiteral(1))),
+                        })),
+                    }))]
+                    .to_vec(),
+                }),
+                Rc::new(Node::ExpressionStatement(Some(Rc::new(
+                    Node::AssignmentExpression {
+                        operator: '=',
+                        left: Some(Rc::new(Node::Identifier(
+                            "result".to_string(),
+                        ))),
+                        right: Some(Rc::new(Node::NumericLiteral(10))),
+                    },
+                )))),
             ]
             .to_vec(),
         );
