@@ -33,6 +33,23 @@ pub enum Node {
         property: Option<Rc<Node>>,
     },
     NumericLiteral(u64),
+
+    // 関数定義で使用するノード
+    BlockStatement {
+        body: Vec<Option<Rc<Node>>>,
+    },
+    ReturnStatement {
+        argument: Option<Rc<Node>>,
+    },
+    FunctionDeclaration {
+        id: Option<Rc<Node>>,
+        params: Vec<Option<Rc<Node>>>,
+        body: Option<Rc<Node>>,
+    },
+    CallExpression {
+        callee: Option<Rc<Node>>,
+        arguments: Vec<Option<Rc<Node>>>,
+    },
 }
 
 pub struct JsParser {
@@ -66,19 +83,100 @@ impl JsParser {
         }
     }
 
+    // SourceElement ::= Statement | FunctionDeclaration
     fn source_element(&mut self) -> Option<Rc<Node>> {
-        match self.t.peek() {
+        let t = match self.t.peek() {
             Some(t) => t,
             None => return None,
         };
+        match t {
+            Token::Keyword(keyword) => {
+                if keyword == "function" {
+                    assert!(self.t.next().is_some());
+                    self.function_declaration()
+                } else {
+                    self.statement()
+                }
+            }
+            _ => self.statement(),
+        }
+    }
 
-        self.statement()
+    // FunctionDeclaration ::= "function" Identifier "(" (FormalParameterList )? ")" FunctionBody
+    fn function_declaration(&mut self) -> Option<Rc<Node>> {
+        let id = self.identifier();
+        let params = self.parameter_list();
+        Node::new_function_declaration(id, params, self.function_body())
+    }
+
+    // ParameterList ::= Identifier ( "," Identifier )*
+    fn parameter_list(&mut self) -> Vec<Option<Rc<Node>>> {
+        let mut params = Vec::new();
+
+        // '('を消費する。
+        match self.t.next() {
+            Some(t) => match t {
+                Token::Punctuator(c) => assert!(c == '('),
+                _ => unimplemented!("function should have `(` but got {:?}", t),
+            },
+            None => unimplemented!("function should have `(` but got None"),
+        }
+
+        loop {
+            // ')'に到達するまで、paramsに仮引数となる変数を追加する
+            match self.t.peek() {
+                Some(t) => match t {
+                    Token::Punctuator(c) => {
+                        if c == &')' {
+                            assert!(self.t.next().is_some());
+                            return params;
+                        }
+                        if c == &',' {
+                            assert!(self.t.next().is_some());
+                        }
+                    }
+                    _ => {
+                        params.push(self.identifier());
+                    }
+                },
+                None => return params,
+            }
+        }
+    }
+
+    // FunctionBody ::= "{" ( SourceElement )? "}"
+    fn function_body(&mut self) -> Option<Rc<Node>> {
+        // `{`を消費する
+        match self.t.next() {
+            Some(t) => match t {
+                Token::Punctuator(c) => assert!(c == '{'),
+                _ => unimplemented!(
+                    "function shold have open curly but got {:?}",
+                    t
+                ),
+            },
+            None => {
+                unimplemented!("function should have open curly but got None")
+            }
+        }
+
+        let mut body = Vec::new();
+        loop {
+            if let Some(Token::Punctuator(c)) = self.t.peek() {
+                if c == &'}' {
+                    assert!(self.t.next().is_some());
+                    return Node::new_block_statement(body);
+                }
+            }
+            body.push(self.source_element());
+        }
     }
 
     // statementとexpression statementの実装
-    // Statement ::= ExpressionStatement | VariableStatement
+    // Statement ::= ExpressionStatement | VariableStatement | RetrunStatement
     // VariableStatement ::= "var" VariableDeclaration
     // ExpressionStatement ::= AssignmentExpression (";")?
+    // ReturnStatement ::= "return" AssigmentExpresion (";")?
     fn statement(&mut self) -> Option<Rc<Node>> {
         let t = match self.t.peek() {
             Some(t) => t,
@@ -90,6 +188,9 @@ impl JsParser {
                     // "var"を消費
                     assert!(self.t.next().is_some());
                     self.variable_declaration()
+                } else if k == "return" {
+                    assert!(self.t.next().is_some());
+                    Node::new_return_statement(self.assignment_expression())
                 } else {
                     None
                 }
@@ -113,7 +214,7 @@ impl JsParser {
         let declarator =
             Node::new_variable_declarator(ident, self.initializer());
 
-        let mut declarations = [declarator].to_vec();
+        let declarations = [declarator].to_vec();
 
         Node::new_variable_declaration(declarations)
     }
@@ -197,14 +298,73 @@ impl JsParser {
         }
     }
 
-    // LeftHandSizeExpression ::= MemberExpression
+    // LeftHandSizeExpression ::= CallExpression | MemberExpression
     fn left_hand_size_expression(&mut self) -> Option<Rc<Node>> {
-        self.member_expression()
+        let expr = self.member_expression();
+
+        let t = match self.t.peek() {
+            Some(token) => token,
+            None => return expr,
+        };
+
+        match t {
+            Token::Punctuator(c) => {
+                if c == &'(' {
+                    assert!(self.t.next().is_some());
+                    return Node::new_call_expression(expr, self.arguments());
+                }
+                expr
+            }
+            _ => expr,
+        }
     }
 
-    // MemberExpression ::= PrimaryExpression
+    // Arguments ::= "(" ( ArgumentList )? ")"
+    // ArgumentList ::= AssignmentExpression ( "," AssignmentExpression )*
+    fn arguments(&mut self) -> Vec<Option<Rc<Node>>> {
+        let mut arguments = Vec::new();
+
+        loop {
+            // ')'に到達するまで、argumentsに引数となる変数を追加する
+            match self.t.peek() {
+                Some(t) => match t {
+                    Token::Punctuator(c) => {
+                        if c == &')' {
+                            assert!(self.t.next().is_some());
+                            return arguments;
+                        }
+                        if c == &',' {
+                            assert!(self.t.next().is_some());
+                        }
+                    }
+                    _ => {
+                        arguments.push(self.assignment_expression());
+                    }
+                },
+                None => return arguments,
+            }
+        }
+    }
+
+    // MemberExpression ::= PrimaryExpression ( "." Identifier )?
     fn member_expression(&mut self) -> Option<Rc<Node>> {
-        self.primary_expression()
+        let expr = self.primary_expression();
+
+        let t = match self.t.peek() {
+            Some(t) => t,
+            None => return expr,
+        };
+
+        match t {
+            Token::Punctuator(c) => {
+                if c == &'.' {
+                    assert!(self.t.next().is_some());
+                    return Node::new_member_expression(expr, self.identifier());
+                }
+                expr
+            }
+            _ => expr,
+        }
     }
 
     // PrimaryExpression ::= Identifier | Literal
@@ -286,6 +446,29 @@ impl Node {
 
     pub fn new_string_literal(value: String) -> Option<Rc<Self>> {
         Some(Rc::new(Node::StringLiteral(value)))
+    }
+
+    pub fn new_block_statement(body: Vec<Option<Rc<Self>>>) -> Option<Rc<Self>> {
+        Some(Rc::new(Node::BlockStatement { body }))
+    }
+
+    pub fn new_return_statement(argument: Option<Rc<Self>>) -> Option<Rc<Self>> {
+        Some(Rc::new(Node::ReturnStatement { argument }))
+    }
+
+    pub fn new_function_declaration(
+        id: Option<Rc<Self>>,
+        params: Vec<Option<Rc<Self>>>,
+        body: Option<Rc<Self>>,
+    ) -> Option<Rc<Self>> {
+        Some(Rc::new(Node::FunctionDeclaration { id, params, body }))
+    }
+
+    pub fn new_call_expression(
+        callee: Option<Rc<Self>>,
+        arguments: Vec<Option<Rc<Self>>>,
+    ) -> Option<Rc<Self>> {
+        Some(Rc::new(Node::CallExpression { callee, arguments }))
     }
 }
 
@@ -485,6 +668,150 @@ result = 10"#
             .to_vec(),
         );
 
+        assert_eq!(expected, parser.parse_ast());
+    }
+
+    // 関数定義(引数なし)のテスト
+    #[test]
+    fn test_define_function_without_arguments() {
+        let input = r#"
+function foo() {
+    return 42;
+}"#
+        .to_string();
+        let mut parser = create_parser(input);
+        let mut expected = Program::new();
+        let body = [Rc::new(Node::FunctionDeclaration {
+            id: Some(Rc::new(Node::Identifier("foo".to_string()))),
+            params: Vec::new(),
+            body: Some(Rc::new(Node::BlockStatement {
+                body: [Some(Rc::new(Node::ReturnStatement {
+                    argument: Some(Rc::new(Node::NumericLiteral(42))),
+                }))]
+                .to_vec(),
+            })),
+        })]
+        .to_vec();
+
+        expected.set_body(body);
+        assert_eq!(expected, parser.parse_ast());
+    }
+
+    // 関数定義(引数あり)のテスト
+    #[test]
+    fn test_define_function_with_arguments() {
+        let input = r#"
+function foo(hoge, fuga) {
+    return 42;
+}"#
+        .to_string();
+        let mut parser = create_parser(input);
+        let mut expected = Program::new();
+        let body = [Rc::new(Node::FunctionDeclaration {
+            id: Some(Rc::new(Node::Identifier("foo".to_string()))),
+            params: [
+                Some(Rc::new(Node::Identifier("hoge".to_string()))),
+                Some(Rc::new(Node::Identifier("fuga".to_string()))),
+            ]
+            .to_vec(),
+            body: Some(Rc::new(Node::BlockStatement {
+                body: [Some(Rc::new(Node::ReturnStatement {
+                    argument: Some(Rc::new(Node::NumericLiteral(42))),
+                }))]
+                .to_vec(),
+            })),
+        })]
+        .to_vec();
+
+        expected.set_body(body);
+        assert_eq!(expected, parser.parse_ast());
+    }
+
+    // 関数呼び出しのテスト
+    #[test]
+    fn test_add_function_add_num() {
+        let input = r#"
+function foo() {
+    return 42;
+}
+var result = foo() + 555;"#
+            .to_string();
+        let mut parser = create_parser(input);
+        let mut expected = Program::new();
+        let body = [
+            Rc::new(Node::FunctionDeclaration {
+                id: Some(Rc::new(Node::Identifier("foo".to_string()))),
+                params: Vec::new(),
+                body: Some(Rc::new(Node::BlockStatement {
+                    body: [Some(Rc::new(Node::ReturnStatement {
+                        argument: Some(Rc::new(Node::NumericLiteral(42))),
+                    }))]
+                    .to_vec(),
+                })),
+            }),
+            Rc::new(Node::VariableDeclaration {
+                declarations: [Some(Rc::new(Node::VariableDeclarator {
+                    id: Some(Rc::new(Node::Identifier("result".to_string()))),
+                    init: Some(Rc::new(Node::AdditiveExpression {
+                        operator: '+',
+                        left: Some(Rc::new(Node::CallExpression {
+                            callee: Some(Rc::new(Node::Identifier(
+                                "foo".to_string(),
+                            ))),
+                            arguments: Vec::new(),
+                        })),
+                        right: Some(Rc::new(Node::NumericLiteral(555))),
+                    })),
+                }))]
+                .to_vec(),
+            }),
+        ]
+        .to_vec();
+
+        expected.set_body(body);
+        assert_eq!(expected, parser.parse_ast());
+    }
+
+    // 関数呼び出し(引数あり)のテスト
+    #[test]
+    fn test_define_function_and_call_function_with_args() {
+        let input = r#"
+function foo(hoge, fuga) {
+    return 42;
+}
+foo(100, 400)"#
+            .to_string();
+        let mut parser = create_parser(input);
+        let mut expected = Program::new();
+        let body = [
+            Rc::new(Node::FunctionDeclaration {
+                id: Some(Rc::new(Node::Identifier("foo".to_string()))),
+                params: [
+                    Some(Rc::new(Node::Identifier("hoge".to_string()))),
+                    Some(Rc::new(Node::Identifier("fuga".to_string()))),
+                ]
+                .to_vec(),
+                body: Some(Rc::new(Node::BlockStatement {
+                    body: [Some(Rc::new(Node::ReturnStatement {
+                        argument: Some(Rc::new(Node::NumericLiteral(42))),
+                    }))]
+                    .to_vec(),
+                })),
+            }),
+            Rc::new(Node::ExpressionStatement(Some(Rc::new(
+                Node::CallExpression {
+                    callee: Some(Rc::new(Node::Identifier("foo".to_string()))),
+                    arguments: [
+                        Some(Rc::new(Node::NumericLiteral(100))),
+                        Some(Rc::new(Node::NumericLiteral(400))),
+                    ]
+                    .to_vec(),
+                },
+            )))),
+        ]
+        .to_vec();
+
+        expected.set_body(body);
         assert_eq!(expected, parser.parse_ast());
     }
 }

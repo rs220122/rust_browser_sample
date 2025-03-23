@@ -234,14 +234,13 @@ impl JsRuntime {
             Node::StringLiteral(value) => {
                 Some(RuntimeValue::StringLiteral(value.to_string()))
             }
+            _ => todo!(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use core::ops::Deref;
-
     use alloc::string::{String, ToString};
 
     use super::*;
@@ -388,4 +387,6 @@ var b = 150 - "aaa";
             assert_eq!(runtime.env.borrow_mut().get_variable(name), val);
         }
     }
+
+    
 }

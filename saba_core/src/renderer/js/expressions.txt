@@ -1,19 +1,30 @@
 Program ::= (SourceElements)? <EOF>
 SouceElements ::= (SourceElement)+ 
-SourceElement ::= Statement
+SourceElement ::= Statement | FunctionDeclaration
 
-Statement ::= ExpressionStatement | VariableStatement
+FunctionDeclaration ::= "function" Identifier "(" (FormalParameterList )? ")" FunctionBody
+FormalParameterList ::= Identifier ( "," Identifier)*
+FunctionBody ::= "{" ( SourceElements )? "}"
+
+Statement ::= ExpressionStatement | VariableStatement | ReturnStatement
 VariableStatement ::= "var" VariableDeclaration (";")?  # var a;, var a=
 VariableDeclaration ::= Identifier ( Initializer )? # 
 Initializer ::= "=" AssignmentExpression
 
 ExpressionStatement ::= AssignmentExpression (";")?
+ReturnStatement ::= "return" AssignmentExpression (";")?
 
 AssignmentExpression ::= AdditiveExpression ("=" AdditiveExpression)*
 AdditiveExpression ::= LeftHandSideExpression ( AdditiveOperator AssignmentExpression)*
 AdditiveOperator ::= <"+"> | <"-">
-LeftHandSideExpression ::= MemberExpression
-MemberExpression ::= PrimaryExpression
+
+LeftHandSideExpression ::= MemberExpression | CallExpression
+CallExpression ::= MemberExpression Arguments
+Arguments ::= "(" ( ArgumentList )? ")" 
+ArgumentList ::= AssignmentExpression ( "," AssignmentExpression )* 
+
+// foo.barのようなオブジェクトのbar変数にアクセスできるように
+MemberExpression ::= PrimaryExpression ( "." Identifier )?
 
 PrimaryExpression ::= Identifier | Literal 
 Identifier ::= <identifier name>
