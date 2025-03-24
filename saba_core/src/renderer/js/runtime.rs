@@ -7,6 +7,9 @@ use core::ops::Sub;
 
 use super::ast::Node;
 use super::ast::Program;
+use crate::renderer::dom::api::get_element_by_id;
+use crate::renderer::dom::node::Node as DomNode;
+use crate::renderer::dom::node::NodeKind as DomNodeKind;
 use alloc::format;
 use alloc::rc::Rc;
 use alloc::string::String;
@@ -35,6 +38,7 @@ impl Function {
 
 #[derive(Debug, Clone)]
 pub struct JsRuntime {
+    dom_root: Rc<RefCell<DomNode>>,
     functions: Vec<Function>,
     env: Rc<RefCell<Environment>>,
 }
@@ -98,6 +102,10 @@ impl Environment {
 pub enum RuntimeValue {
     Number(u64),
     StringLiteral(String),
+    HtmlElement {
+        object: Rc<RefCell<DomNode>>,
+        property: Option<String>,
+    },
 }
 
 impl Add<RuntimeValue> for RuntimeValue {
@@ -139,6 +147,10 @@ impl Display for RuntimeValue {
         let s = match self {
             RuntimeValue::Number(value) => format!("{}", value),
             RuntimeValue::StringLiteral(value) => value.to_string(),
+            RuntimeValue::HtmlElement {
+                object,
+                property: _,
+            } => format!("HtmlElement: {:#?}", object),
         };
         write!(f, "{}", s)
     }
@@ -146,13 +158,14 @@ impl Display for RuntimeValue {
 
 impl Default for JsRuntime {
     fn default() -> Self {
-        Self::new()
+        Self::new(Rc::new(RefCell::new(DomNode::new(DomNodeKind::Document))))
     }
 }
 
 impl JsRuntime {
-    pub fn new() -> Self {
+    pub fn new(dom_root: Rc<RefCell<DomNode>>) -> Self {
         Self {
+            dom_root,
             functions: Vec::new(),
             env: Rc::new(RefCell::new(Environment::new(None))),
         }
@@ -199,6 +212,17 @@ impl JsRuntime {
                     Some(value) => value,
                     None => return None,
                 };
+
+                let api_result = self.call_browser_api(
+                    &callee_value,
+                    arguments,
+                    new_env.clone(),
+                );
+                if api_result.0 {
+                    // もしブラウザAPIを呼び出していたら、ユーザーが定義した関数を実行しない
+                    return api_result.1;
+                }
+
                 // すでに定義されている関数を探す
                 let function = match self.search_function(callee_value) {
                     Some(func) => func,
@@ -273,14 +297,59 @@ impl JsRuntime {
                             .update_variable(id.to_string(), new_value);
                     }
                 }
+
+                // leftがDOMツリーのノードを表すHtmlElementならば、DOMツリーを更新する
+                if let Some(RuntimeValue::HtmlElement { object, property }) =
+                    self.eval(left, env.clone())
+                {
+                    let right_value = match self.eval(right, env.clone()) {
+                        Some(value) => value,
+                        None => return None,
+                    };
+
+                    if let Some(p) = property {
+                        // target.textContent = "foobar";のようにノードのテキストを更新する
+                        if p == "textContent" {
+                            object.borrow_mut().set_first_child(Some(Rc::new(
+                                RefCell::new(DomNode::new(DomNodeKind::Text(
+                                    right_value.to_string(),
+                                ))),
+                            )));
+                        }
+                    }
+                }
                 None
             }
 
-            Node::MemberExpression {
-                object: _,
-                property: _,
-            } => {
-                unimplemented!("not yet")
+            Node::MemberExpression { object, property } => {
+                let object_value = match self.eval(object, env.clone()) {
+                    Some(value) => value,
+                    None => return None,
+                };
+                let property_value = match self.eval(property, env.clone()) {
+                    Some(value) => value,
+                    None => return Some(object_value),
+                };
+
+                // もしオブジェクトがDOMノードの場合、HtmlELementのpropertyを更新する
+                if let RuntimeValue::HtmlElement { object, property } =
+                    object_value
+                {
+                    assert!(property.is_none());
+                    // HtmlElementのpropertyにproperty_valueの文字列をセットする。
+                    return Some(RuntimeValue::HtmlElement {
+                        object,
+                        property: Some(property_value.to_string()),
+                    });
+                }
+
+                // document.getElementByIdは、"document.getElementById"という1つの値として扱う
+                // このメソッドのへの呼び出しは、"document.getElementById"という名前への呼び出しになる。
+                return Some(
+                    object_value
+                        + RuntimeValue::StringLiteral(".".to_string())
+                        + property_value,
+                );
             }
             Node::NumericLiteral(value) => Some(RuntimeValue::Number(*value)),
             Node::VariableDeclaration { declarations } => {
@@ -325,6 +394,43 @@ impl JsRuntime {
         }
         None
     }
+
+    /// (bool, Option<RuntimeValue>)のタプルを返す
+    /// bool: ブラウザAPIが呼ばれたかどうか。trueなら何かしらのAPIが呼ばれたことを表す
+    /// Option<RuntimeValue>: ブラウザAPIの呼び出しによって得られた結果
+    /// ブラウザがサポートしているブラウザAPIを呼び出すための関数
+    fn call_browser_api(
+        &mut self,
+        func: &RuntimeValue,
+        arguments: &[Option<Rc<Node>>],
+        env: Rc<RefCell<Environment>>,
+    ) -> (bool, Option<RuntimeValue>) {
+        if func
+            == &RuntimeValue::StringLiteral(
+                "document.getElementById".to_string(),
+            )
+        {
+            let arg = match self.eval(&arguments[0], env.clone()) {
+                Some(id) => id,
+                None => return (true, None),
+            };
+            let target = match get_element_by_id(
+                Some(self.dom_root.clone()),
+                &arg.to_string(),
+            ) {
+                Some(n) => n,
+                None => return (true, None),
+            };
+            return (
+                true,
+                Some(RuntimeValue::HtmlElement {
+                    object: target,
+                    property: None,
+                }),
+            );
+        }
+        (false, None)
+    }
 }
 
 #[cfg(test)]
@@ -339,7 +445,9 @@ mod tests {
         let lexer = JsLexer::new(input);
         let mut parser = JsParser::new(lexer);
         let ast = parser.parse_ast();
-        let runtime = JsRuntime::new();
+        let runtime = JsRuntime::new(Rc::new(RefCell::new(DomNode::new(
+            DomNodeKind::Document,
+        ))));
         (ast, runtime)
     }
 
